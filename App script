@@ -1,0 +1,166 @@
+// IMPORTANT: Replace 'XXXXX' with your own Google Maps Places API key.
+// If you don't have one yet, you can generate it here:
+// https://developers.google.com/maps/documentation/places/web-service/get-api-key
+
+const API_KEY = 'XXXXX';
+
+/**
+ * Fetches phone number for a given place using Google Places Details API.
+ *
+ * @param {string} placeId - The unique identifier for the place.
+ * @returns {string} - The formatted phone number if available, otherwise 'N/A'.
+ */
+function getPhoneNumber(placeId) {
+  if (!placeId) return 'N/A';
+  const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=formatted_phone_number&key=${API_KEY}`;
+  try {
+    const response = UrlFetchApp.fetch(detailsUrl);
+    const detailsData = JSON.parse(response.getContentText());
+    if (detailsData.status === 'OK' && detailsData.result && detailsData.result.formatted_phone_number) {
+      return detailsData.result.formatted_phone_number;
+    }
+  } catch (e) {
+    Logger.log("Error fetching details for placeId " + placeId + ": " + e.toString());
+  }
+  return 'N/A';
+}
+
+/**
+ * Fetches businesses from Google Places API based on provided search criteria,
+ * and writes new results to a new worksheet. The search radius is expanded
+ * in increments until at least the desired number of results (maxResults) is found or
+ * a maximum radius is reached.
+ *
+ * @param {string} industry - Business category or keyword to search for.
+ * @param {string} location - Location to search in.
+ * @param {string} [type] - (Optional) Specific business type.
+ * @param {number} [maxResults=60] - Maximum number of results to fetch.
+ */
+function getBusinesses(industry, location, type = '', maxResults = 60) {
+  // Validate required parameters.
+  if (!industry || !location) {
+    Logger.log("Error: 'industry' and 'location' parameters are required.");
+    return;
+  }
+  
+  // Create a new worksheet using a name based on the search query and current timestamp.
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const timeStamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmmss");
+  const sheetName = industry + " - " + location + " " + timeStamp;
+  const sheet = spreadsheet.insertSheet(sheetName);
+  
+  // Add headers to the new sheet and format them bold.
+  const headers = ['Business Name', 'Address', 'Rating', 'Phone Number'];
+  sheet.appendRow(headers);
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+  Logger.log('Headers added and formatted bold in new sheet: ' + sheetName);
+  
+  // Since this is a new sheet, duplicate checking starts fresh.
+  let existingAddresses = new Set();
+  
+  // Initialize radius parameters.
+  let currentRadius = 10000; // start with 10 km.
+  const radiusIncrement = 10000; // increase by 10 km each iteration.
+  const maxSearchRadius = 50000; // maximum search radius of 50 km.
+  
+  // Array to hold all new (unique) results.
+  let totalNewResults = [];
+  
+  // Outer loop: Increase radius until enough new results are found or max radius is reached.
+  while (totalNewResults.length < maxResults && currentRadius <= maxSearchRadius) {
+    let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(industry)}+in+${encodeURIComponent(location)}&radius=${currentRadius}&key=${API_KEY}`;
+    if (type) {
+      url += `&type=${encodeURIComponent(type)}`;
+    }
+    
+    let nextPageToken = null;
+    let attemptCount = 0;
+    let resultsForRadius = [];
+    
+    try {
+      do {
+        Logger.log(`Fetching page ${attemptCount + 1} for radius ${currentRadius} meters: ${url}`);
+        const response = UrlFetchApp.fetch(url);
+        const data = JSON.parse(response.getContentText());
+        
+        if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+          throw new Error(`API error: ${data.status}${data.error_message ? ' - ' + data.error_message : ''}`);
+        }
+        
+        if (data.results && data.results.length > 0) {
+          resultsForRadius = resultsForRadius.concat(data.results);
+        }
+        
+        nextPageToken = data.next_page_token || null;
+        
+        // Stop if we've fetched enough for this radius.
+        if (resultsForRadius.length >= maxResults) break;
+        
+        if (nextPageToken) {
+          // Mandatory delay before using the next_page_token.
+          Utilities.sleep(2000);
+          url = `https://maps.googleapis.com/maps/api/place/textsearch/json?pagetoken=${nextPageToken}&key=${API_KEY}`;
+          if (type) {
+            url += `&type=${encodeURIComponent(type)}`;
+          }
+        }
+        
+        attemptCount++;
+      } while (nextPageToken && attemptCount < 3);
+    } catch (error) {
+      Logger.log(`Error: ${error.toString()}`);
+      break;
+    }
+    
+    // Filter out duplicates within the current search (using business address as identifier).
+    resultsForRadius.forEach(business => {
+      const address = business.formatted_address || 'N/A';
+      if (!existingAddresses.has(address)) {
+        existingAddresses.add(address);
+        totalNewResults.push(business);
+      }
+    });
+    
+    Logger.log(`Radius ${currentRadius} meters yielded ${resultsForRadius.length} results; total unique businesses so far: ${totalNewResults.length}`);
+    
+    // Increase the radius if we haven't reached the desired count.
+    if (totalNewResults.length < maxResults) {
+      currentRadius += radiusIncrement;
+    }
+  }
+  
+  // Limit the results to maxResults.
+  const slicedResults = totalNewResults.slice(0, maxResults);
+  
+  // Prepare rows for insertion.
+  const rows = slicedResults.map(business => {
+    const address = business.formatted_address || 'N/A';
+    // Use phone number from the initial response if available; otherwise, fetch via Place Details.
+    const phone = business.formatted_phone_number || getPhoneNumber(business.place_id);
+    return [
+      business.name || 'N/A',
+      address,
+      business.rating || 'N/A',
+      phone
+    ];
+  });
+  
+  // Write the new data to the new worksheet.
+  if (rows.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+    Logger.log(`Fetched and wrote ${rows.length} new businesses to sheet: ${sheetName}`);
+  } else {
+    Logger.log('No new businesses to add.');
+  }
+}
+
+/**
+ * Main entry point to run the business search.
+ * Modify the parameters as needed.
+ */
+function main() {
+  // Example: Run a query for "swimming lessons" in "Toronto" with type "school" and maximum 100 results.
+  getBusinesses('swimming lessons', 'Toronto', 'school', 100);
+}
+
+main();
