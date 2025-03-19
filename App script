@@ -5,13 +5,13 @@
 const API_KEY = 'XXXXX';
 
 /**
- * Fetches phone number and website from Google Places Details API.
+ * Fetches phone number, website, and logo (if available) from Google Places Details API.
  *
  * @param {string} placeId - The unique identifier for the place.
- * @returns {object} - An object containing the formatted phone number and website.
+ * @returns {object} - An object containing phone, website, and logo URL.
  */
-function getBusinessDetails(placeId) {
-  if (!placeId) return { phone: 'N/A', website: 'N/A' };
+function getBusinessDetails(placeId, photoRef) {
+  if (!placeId) return { phone: 'N/A', website: 'N/A', logo: photoRef ? getPhotoUrl(photoRef) : 'N/A' };
 
   const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=formatted_phone_number,website&key=${API_KEY}`;
   
@@ -22,14 +22,25 @@ function getBusinessDetails(placeId) {
     if (detailsData.status === 'OK' && detailsData.result) {
       return {
         phone: detailsData.result.formatted_phone_number || 'N/A',
-        website: detailsData.result.website || 'N/A'
+        website: detailsData.result.website || 'N/A',
+        logo: photoRef ? getPhotoUrl(photoRef) : 'N/A'
       };
     }
   } catch (e) {
     Logger.log("Error fetching details for placeId " + placeId + ": " + e.toString());
   }
 
-  return { phone: 'N/A', website: 'N/A' };
+  return { phone: 'N/A', website: 'N/A', logo: photoRef ? getPhotoUrl(photoRef) : 'N/A' };
+}
+
+/**
+ * Constructs the Google Places Photo API URL to fetch the business's logo or image.
+ *
+ * @param {string} photoRef - The photo reference ID returned by the Places API.
+ * @returns {string} - A direct URL to the business image.
+ */
+function getPhotoUrl(photoRef) {
+  return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${photoRef}&key=${API_KEY}`;
 }
 
 /**
@@ -52,7 +63,7 @@ function getBusinesses(industry, location, type = '', maxResults = 60) {
   const sheetName = `${industry} - ${location} ${timeStamp}`;
   const sheet = spreadsheet.insertSheet(sheetName);
   
-  const headers = ['Business Name', 'Address', 'Rating', 'Phone Number', 'Website'];
+  const headers = ['Business Name', 'Address', 'Rating', 'Phone Number', 'Website', 'Logo URL'];
   sheet.appendRow(headers);
   sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
   Logger.log('Headers added and formatted bold in new sheet: ' + sheetName);
@@ -122,13 +133,15 @@ function getBusinesses(industry, location, type = '', maxResults = 60) {
   
   const rows = slicedResults.map(business => {
     const address = business.formatted_address || 'N/A';
-    const details = getBusinessDetails(business.place_id);
+    const photoRef = business.photos && business.photos.length > 0 ? business.photos[0].photo_reference : null;
+    const details = getBusinessDetails(business.place_id, photoRef);
     return [
       business.name || 'N/A',
       address,
       business.rating || 'N/A',
       details.phone,
-      details.website
+      details.website,
+      details.logo
     ];
   });
   
@@ -145,8 +158,8 @@ function getBusinesses(industry, location, type = '', maxResults = 60) {
  */
 function main() {
   // Example: Get "swimming lessons" in "Toronto"
-  getBusinesses('swimming lessons', 'Toronto', 'school', 100);
+  getBusinesses('language class kids', 'Toronto', 'school', 100);
 }
 
-main();
 
+main();
