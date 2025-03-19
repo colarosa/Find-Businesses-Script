@@ -148,6 +148,5 @@ function main() {
   getBusinesses('swimming lessons', 'Toronto', 'school', 100);
 }
 
-// Uncomment to run
-// main();
+main();
 
