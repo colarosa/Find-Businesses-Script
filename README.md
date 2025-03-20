@@ -26,7 +26,7 @@ To use this script, you must have a Google Maps Places API key.
 4. Save the script.
 
 ## Categories Tracked
-The script searches for the following categories of activities:
+The script searches for the following categories of activities (change these to what ever you want):
 - Karate classes
 - Daycares
 - Coding clubs
