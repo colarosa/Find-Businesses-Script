@@ -6,13 +6,12 @@ const API_KEY = 'XXXXX';
 
 /**
  * List of kids' activity categories
+ * Google Apps Script has execution time limits (typically 6 minutes per execution for consumer accounts and 30 minutes for business/workspace accounts). 
  */
 const CATEGORIES = [
   'Karate class for kids', 'Daycares', 'Coding club for kids', 'Chess club for kids', 'Language club for kids',
   'Gymnastics classes', 'Music lessons for kids', 'Dance schools', 'Art classes for kids', 'Swimming lessons',
-  'Summer camps', 'Science clubs', 'Math tutoring for kids', 'Robotics for kids', 'Outdoor adventure parks',
-  'Storytime at libraries', 'Kids cooking classes', 'Soccer training for kids', 'Basketball training',
-  'Ballet for kids', 'Theater acting for kids', 'STEM workshops', 'Lego building clubs', 'Creative writing for kids', 'Public speaking for kids'
+  'Summer camps', 'Science clubs', 'Math tutoring for kids'
 ];
 
 /**
