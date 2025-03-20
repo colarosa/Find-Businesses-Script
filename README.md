@@ -50,14 +50,11 @@ Modify the `main()` function with your desired search parameters and run the scr
 
 Example:
 
-```javascript
-main('swimming lessons', 'Toronto', 'school', 100);
-```
 
 ### 2. New Worksheet Creation
 
 - Each execution creates a **new worksheet** named using the search parameters and a timestamp  
-  (e.g., `"swimming lessons - Toronto 20250319_101530"`).
+  (e.g., `"swimming lessons"`).
 - This ensures that different queries output to separate sheets and do not overwrite previous results.
 
 ### 3. Logs
