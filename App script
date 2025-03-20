@@ -160,6 +160,7 @@ function getBusinesses(category, location, type = '', maxResults = 60) {
 
 /**
  * Runs the script for all categories.
+ * You can change 'Toronto' to any city of your choice.
  */
 function main() {
   CATEGORIES.forEach(category => getBusinesses(category, 'Toronto'));
