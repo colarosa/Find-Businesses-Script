@@ -1,4 +1,4 @@
-# Kids Activity Finder
+# Find Bussiness: Get data in bulk script
 
 ## Overview
 This project is a Google Apps Script that leverages the Google Maps Places API to aggregate kids' activity listings. It fetches business details for various categories of activities for children and organizes them into a Google Sheet.
