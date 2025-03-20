@@ -5,78 +5,108 @@
 const API_KEY = 'XXXXX';
 
 /**
- * Fetches phone number, website, and logo (if available) from Google Places Details API.
- *
- * @param {string} placeId - The unique identifier for the place.
- * @returns {object} - An object containing phone, website, and logo URL.
+ * List of kids' activity categories
+ */
+const CATEGORIES = [
+  'Karate class for kids', 'Daycares', 'Coding club for kids', 'Chess club for kids', 'Language club for kids',
+  'Gymnastics classes', 'Music lessons for kids', 'Dance schools', 'Art classes for kids', 'Swimming lessons',
+  'Summer camps', 'Science clubs', 'Math tutoring for kids', 'Robotics for kids', 'Outdoor adventure parks',
+  'Storytime at libraries', 'Kids cooking classes', 'Soccer training for kids', 'Basketball training',
+  'Ballet for kids', 'Theater acting for kids', 'STEM workshops', 'Lego building clubs', 'Creative writing for kids', 'Public speaking for kids'
+];
+
+/**
+ * Fetches business details including phone, website, logo, hours, and categorization.
  */
 function getBusinessDetails(placeId, photoRef) {
-  if (!placeId) return { phone: 'N/A', website: 'N/A', logo: photoRef ? getPhotoUrl(photoRef) : 'N/A' };
+  if (!placeId) return {
+    phone: 'N/A', website: 'N/A', logo: getPhotoUrl(photoRef), 
+    hours: 'N/A', ageRange: 'N/A', onlineAvailable: 'N/A'
+  };
 
-  const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=formatted_phone_number,website&key=${API_KEY}`;
+  const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_phone_number,website,opening_hours&key=${API_KEY}`;
   
   try {
     const response = UrlFetchApp.fetch(detailsUrl);
     const detailsData = JSON.parse(response.getContentText());
 
     if (detailsData.status === 'OK' && detailsData.result) {
+      const name = detailsData.result.name || 'Unknown'; 
+      const openingHours = detailsData.result.opening_hours || {};
       return {
         phone: detailsData.result.formatted_phone_number || 'N/A',
         website: detailsData.result.website || 'N/A',
-        logo: photoRef ? getPhotoUrl(photoRef) : 'N/A'
+        logo: getPhotoUrl(photoRef),
+        hours: openingHours.weekday_text ? openingHours.weekday_text.join(' | ') : 'N/A',
+        ageRange: categorizeByAge(name),
+        onlineAvailable: checkOnlineAvailability(detailsData.result.website)
       };
     }
   } catch (e) {
     Logger.log("Error fetching details for placeId " + placeId + ": " + e.toString());
   }
 
-  return { phone: 'N/A', website: 'N/A', logo: photoRef ? getPhotoUrl(photoRef) : 'N/A' };
+  return {
+    phone: 'N/A', website: 'N/A', logo: getPhotoUrl(photoRef), 
+    hours: 'N/A', ageRange: 'N/A', onlineAvailable: 'N/A'
+  };
 }
 
 /**
- * Constructs the Google Places Photo API URL to fetch the business's logo or image.
- *
- * @param {string} photoRef - The photo reference ID returned by the Places API.
- * @returns {string} - A direct URL to the business image.
+ * Constructs the Google Places Photo API URL for logos.
  */
 function getPhotoUrl(photoRef) {
-  return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${photoRef}&key=${API_KEY}`;
+  return photoRef ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${photoRef}&key=${API_KEY}` : 'N/A';
 }
 
 /**
- * Fetches businesses from Google Places API and writes the results to a new worksheet.
- * Expands the radius dynamically to find more results up to maxResults.
- *
- * @param {string} industry - Business category or keyword to search for.
- * @param {string} location - Location to search in.
- * @param {string} [type] - (Optional) Specific business type.
- * @param {number} [maxResults=60] - Maximum number of results to fetch.
+ * Categorizes activities by age group based on keywords.
  */
-function getBusinesses(industry, location, type = '', maxResults = 60) {
-  if (!industry || !location) {
-    Logger.log("Error: 'industry' and 'location' parameters are required.");
+function categorizeByAge(name) {
+  if (!name) return 'All Ages';
+  const lowerName = name.toLowerCase();
+  if (lowerName.includes('toddler') || lowerName.includes('preschool')) return '2-5 years';
+  if (lowerName.includes('junior') || lowerName.includes('kids')) return '6-10 years';
+  if (lowerName.includes('teen') || lowerName.includes('youth')) return '11+ years';
+  return 'All Ages';
+}
+
+/**
+ * Determines if an activity offers online options based on its website URL.
+ */
+function checkOnlineAvailability(website) {
+  if (!website || website === 'N/A') return 'No';
+  const keywords = ['online', 'virtual', 'zoom', 'livestream'];
+  return keywords.some(keyword => website.includes(keyword)) ? 'Yes' : 'No';
+}
+
+/**
+ * Fetches businesses from Google Places API and writes results to a new worksheet.
+ */
+function getBusinesses(category, location, type = '', maxResults = 60) {
+  if (!category || !location) {
+    Logger.log("Error: 'category' and 'location' parameters are required.");
     return;
   }
   
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  const timeStamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmmss");
-  const sheetName = `${industry} - ${location} ${timeStamp}`;
-  const sheet = spreadsheet.insertSheet(sheetName);
+  let sheet = spreadsheet.getSheetByName(category);
   
-  const headers = ['Business Name', 'Address', 'Rating', 'Phone Number', 'Website', 'Logo URL'];
-  sheet.appendRow(headers);
-  sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
-  Logger.log('Headers added and formatted bold in new sheet: ' + sheetName);
-  
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(category);
+    const headers = ['Business Name', 'Address', 'Rating', 'Total Reviews', 'Phone Number', 'Website', 'Logo URL', 'Business Hours', 'Age Range', 'Online Available'];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+  }
+
   let existingAddresses = new Set();
-  
   let currentRadius = 10000;
   const radiusIncrement = 10000;
   const maxSearchRadius = 50000;
   let totalNewResults = [];
   
   while (totalNewResults.length < maxResults && currentRadius <= maxSearchRadius) {
-    let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(industry)}+in+${encodeURIComponent(location)}&radius=${currentRadius}&key=${API_KEY}`;
+    let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(category)}+in+${encodeURIComponent(location)}&radius=${currentRadius}&key=${API_KEY}`;
     if (type) url += `&type=${encodeURIComponent(type)}`;
     
     let nextPageToken = null;
@@ -85,7 +115,6 @@ function getBusinesses(industry, location, type = '', maxResults = 60) {
     
     try {
       do {
-        Logger.log(`Fetching page ${attemptCount + 1} for radius ${currentRadius} meters: ${url}`);
         const response = UrlFetchApp.fetch(url);
         const data = JSON.parse(response.getContentText());
         
@@ -98,14 +127,8 @@ function getBusinesses(industry, location, type = '', maxResults = 60) {
         }
         
         nextPageToken = data.next_page_token || null;
-        
         if (resultsForRadius.length >= maxResults) break;
-        
-        if (nextPageToken) {
-          Utilities.sleep(2000);
-          url = `https://maps.googleapis.com/maps/api/place/textsearch/json?pagetoken=${nextPageToken}&key=${API_KEY}`;
-          if (type) url += `&type=${encodeURIComponent(type)}`;
-        }
+        if (nextPageToken) Utilities.sleep(2000);
         
         attemptCount++;
       } while (nextPageToken && attemptCount < 3);
@@ -121,45 +144,26 @@ function getBusinesses(industry, location, type = '', maxResults = 60) {
         totalNewResults.push(business);
       }
     });
-    
-    Logger.log(`Radius ${currentRadius} meters yielded ${resultsForRadius.length} results; total unique businesses so far: ${totalNewResults.length}`);
-    
-    if (totalNewResults.length < maxResults) {
-      currentRadius += radiusIncrement;
-    }
+
+    if (totalNewResults.length < maxResults) currentRadius += radiusIncrement;
   }
   
-  const slicedResults = totalNewResults.slice(0, maxResults);
-  
-  const rows = slicedResults.map(business => {
-    const address = business.formatted_address || 'N/A';
-    const photoRef = business.photos && business.photos.length > 0 ? business.photos[0].photo_reference : null;
-    const details = getBusinessDetails(business.place_id, photoRef);
+  const rows = totalNewResults.map(business => {
+    const details = getBusinessDetails(business.place_id, business.photos?.[0]?.photo_reference);
     return [
-      business.name || 'N/A',
-      address,
-      business.rating || 'N/A',
-      details.phone,
-      details.website,
-      details.logo
+      business.name || 'N/A', business.formatted_address || 'N/A', business.rating || 'N/A',
+      business.user_ratings_total || 0, details.phone, details.website, details.logo, details.hours, details.ageRange, details.onlineAvailable
     ];
   });
-  
-  if (rows.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
-    Logger.log(`Fetched and wrote ${rows.length} new businesses to sheet: ${sheetName}`);
-  } else {
-    Logger.log('No new businesses to add.');
-  }
+
+  if (rows.length > 0) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
 }
 
 /**
- * Main function to fetch businesses.
+ * Runs the script for all categories.
  */
 function main() {
-  // Example: Get "swimming lessons" in "Toronto"
-  getBusinesses('language class kids', 'Toronto', 'school', 100);
+  CATEGORIES.forEach(category => getBusinesses(category, 'Toronto'));
 }
-
 
 main();
