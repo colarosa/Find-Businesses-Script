@@ -67,12 +67,10 @@ To run the script:
 3. The results will be saved into a Google Sheet.
 
 ## Customization
-### Change Search Location
-Modify the `main()` function to use a different city:
+### Change Search Location(s)
+
 ```js
-function main() {
-  CATEGORIES.forEach(category => getBusinesses(category, 'New York'));
-}
+const LOCATIONS = ['Toronto', 'Oakville', 'Burlington', 'Hamilton', 'New York', 'Texas'];
 ```
 
 ### Adjust Search Radius
