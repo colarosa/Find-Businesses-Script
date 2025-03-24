@@ -6,16 +6,54 @@ const API_KEY = 'XXXXX';
 
 /**
  * List of kids' activity categories
- * Google Apps Script has execution time limits (typically 6 minutes per execution for consumer accounts and 30 minutes for business/workspace accounts). 
  */
 const CATEGORIES = [
-  'Karate class for kids', 'Daycares', 'Coding club for kids', 'Chess club for kids', 'Language club for kids',
-  'Gymnastics classes', 'Music lessons for kids', 'Dance schools', 'Art classes for kids', 'Swimming lessons',
-  'Summer camps', 'Science clubs', 'Math tutoring for kids'
+  'Science clubs', 'Math tutoring for kids'
 ];
 
 /**
- * Fetches business details including phone, website, logo, hours, and categorization.
+ * List of locations to search in
+ */
+const LOCATIONS = ['Toronto', 'Oakville', 'Burlington', 'Hamilton', 'New York', 'Texas'];
+
+/**
+ * Builds a clean sheet name combining category and location
+ */
+function getSheetName(category, location) {
+  const raw = `${category} - ${location}`;
+  return raw.substring(0, 100).replace(/[:\/\\?\*\[\]]/g, ''); // Remove invalid characters and limit to 100 chars
+}
+
+/**
+ * Builds photo URL
+ */
+function getPhotoUrl(photoRef) {
+  return photoRef ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${photoRef}&key=${API_KEY}` : 'N/A';
+}
+
+/**
+ * Categorizes age based on name
+ */
+function categorizeByAge(name) {
+  if (!name) return 'All Ages';
+  const lower = name.toLowerCase();
+  if (lower.includes('toddler') || lower.includes('preschool')) return '2-5 years';
+  if (lower.includes('junior') || lower.includes('kids')) return '6-10 years';
+  if (lower.includes('teen') || lower.includes('youth')) return '11+ years';
+  return 'All Ages';
+}
+
+/**
+ * Detects if the business offers online activities
+ */
+function checkOnlineAvailability(website) {
+  if (!website || website === 'N/A') return 'No';
+  const keywords = ['online', 'virtual', 'zoom', 'livestream'];
+  return keywords.some(keyword => website.includes(keyword)) ? 'Yes' : 'No';
+}
+
+/**
+ * Fetches business details
  */
 function getBusinessDetails(placeId, photoRef) {
   if (!placeId) return {
@@ -30,7 +68,7 @@ function getBusinessDetails(placeId, photoRef) {
     const detailsData = JSON.parse(response.getContentText());
 
     if (detailsData.status === 'OK' && detailsData.result) {
-      const name = detailsData.result.name || 'Unknown'; 
+      const name = detailsData.result.name || 'Unknown';
       const openingHours = detailsData.result.opening_hours || {};
       return {
         phone: detailsData.result.formatted_phone_number || 'N/A',
@@ -52,47 +90,20 @@ function getBusinessDetails(placeId, photoRef) {
 }
 
 /**
- * Constructs the Google Places Photo API URL for logos.
- */
-function getPhotoUrl(photoRef) {
-  return photoRef ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${photoRef}&key=${API_KEY}` : 'N/A';
-}
-
-/**
- * Categorizes activities by age group based on keywords.
- */
-function categorizeByAge(name) {
-  if (!name) return 'All Ages';
-  const lowerName = name.toLowerCase();
-  if (lowerName.includes('toddler') || lowerName.includes('preschool')) return '2-5 years';
-  if (lowerName.includes('junior') || lowerName.includes('kids')) return '6-10 years';
-  if (lowerName.includes('teen') || lowerName.includes('youth')) return '11+ years';
-  return 'All Ages';
-}
-
-/**
- * Determines if an activity offers online options based on its website URL.
- */
-function checkOnlineAvailability(website) {
-  if (!website || website === 'N/A') return 'No';
-  const keywords = ['online', 'virtual', 'zoom', 'livestream'];
-  return keywords.some(keyword => website.includes(keyword)) ? 'Yes' : 'No';
-}
-
-/**
- * Fetches businesses from Google Places API and writes results to a new worksheet.
+ * Fetches and stores business info by category and location
  */
 function getBusinesses(category, location, type = '', maxResults = 60) {
   if (!category || !location) {
-    Logger.log("Error: 'category' and 'location' parameters are required.");
+    Logger.log("Missing category or location");
     return;
   }
-  
+
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = spreadsheet.getSheetByName(category);
-  
+  const sheetName = getSheetName(category, location);
+  let sheet = spreadsheet.getSheetByName(sheetName);
+
   if (!sheet) {
-    sheet = spreadsheet.insertSheet(category);
+    sheet = spreadsheet.insertSheet(sheetName);
     const headers = ['Business Name', 'Address', 'Rating', 'Total Reviews', 'Phone Number', 'Website', 'Logo URL', 'Business Hours', 'Age Range', 'Online Available'];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
@@ -103,7 +114,7 @@ function getBusinesses(category, location, type = '', maxResults = 60) {
   const radiusIncrement = 10000;
   const maxSearchRadius = 50000;
   let totalNewResults = [];
-  
+
   while (totalNewResults.length < maxResults && currentRadius <= maxSearchRadius) {
     let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(category)}+in+${encodeURIComponent(location)}&radius=${currentRadius}&key=${API_KEY}`;
     if (type) url += `&type=${encodeURIComponent(type)}`;
@@ -132,7 +143,7 @@ function getBusinesses(category, location, type = '', maxResults = 60) {
         attemptCount++;
       } while (nextPageToken && attemptCount < 3);
     } catch (error) {
-      Logger.log(`Error: ${error.toString()}`);
+      Logger.log(`Error fetching businesses: ${error}`);
       break;
     }
     
@@ -146,24 +157,37 @@ function getBusinesses(category, location, type = '', maxResults = 60) {
 
     if (totalNewResults.length < maxResults) currentRadius += radiusIncrement;
   }
-  
+
   const rows = totalNewResults.map(business => {
     const details = getBusinessDetails(business.place_id, business.photos?.[0]?.photo_reference);
     return [
-      business.name || 'N/A', business.formatted_address || 'N/A', business.rating || 'N/A',
-      business.user_ratings_total || 0, details.phone, details.website, details.logo, details.hours, details.ageRange, details.onlineAvailable
+      business.name || 'N/A',
+      business.formatted_address || 'N/A',
+      business.rating || 'N/A',
+      business.user_ratings_total || 0,
+      details.phone,
+      details.website,
+      details.logo,
+      details.hours,
+      details.ageRange,
+      details.onlineAvailable
     ];
   });
 
-  if (rows.length > 0) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  if (rows.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  }
 }
 
 /**
- * Runs the script for all categories.
- * You can change 'Toronto' to any city of your choice.
+ * Main entry point
  */
 function main() {
-  CATEGORIES.forEach(category => getBusinesses(category, 'Toronto'));
+  LOCATIONS.forEach(location => {
+    CATEGORIES.forEach(category => {
+      getBusinesses(category, location);
+    });
+  });
 }
 
 main();
